@@ -1,0 +1,178 @@
+
+from sentence_transformers.models import Transformer, Pooling
+from sentence_transformers import SentenceTransformer
+import os
+import faiss
+import json
+import torch
+import tqdm
+import numpy as np
+
+corpus_names = {
+    "PubMed": ["pubmed_abs"],
+    "Textbooks": ["textbooks"],
+    "StatPearls": ["statpearls"],
+    "Wikipedia": ["wikipedia"],
+    "MedCorp": ["pubmed_abs", "textbooks", "statpearls", "wikipedia"],
+}
+
+retriever_names = {
+    "BM25": ["BM25"],
+    "Contriever": ["facebook/contriever"],
+    "SPECTER": ["allenai/specter"],
+    "MedCPT": ["ncbi/MedCPT-Query-Encoder"],
+    "RRF-2": ["BM25", "ncbi/MedCPT-Query-Encoder"],
+    "RRF-4": ["BM25", "facebook/contriever", "allenai/specter", "ncbi/MedCPT-Query-Encoder"]
+}
+
+class CustomizeSentenceTransformer(SentenceTransformer): # change the default pooling "MEAN" to "CLS"
+
+    def _load_auto_model(self, model_name_or_path):
+        """
+        Creates a simple Transformer + CLS Pooling model and returns the modules
+        """
+        print("No sentence-transformers model found with name {}. Creating a new one with CLS pooling.".format(model_name_or_path))
+        transformer_model = Transformer(model_name_or_path)
+        pooling_model = Pooling(transformer_model.get_word_embedding_dimension(), 'cls')
+        return [transformer_model, pooling_model]
+
+
+def embed(chunk_dir, index_dir, model_name, **kwarg):
+
+    save_dir = os.path.join(index_dir, "embedding")
+    
+    if "contriever" in model_name:
+        model = SentenceTransformer(model_name, device="cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        model = CustomizeSentenceTransformer(model_name, device="cuda" if torch.cuda.is_available() else "cpu")
+
+    model.eval()
+
+    fnames = sorted([fname for fname in os.listdir(chunk_dir) if fname.endswith(".jsonl")])
+
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    with torch.no_grad():
+        for fname in tqdm.tqdm(fnames):
+            fpath = os.path.join(chunk_dir, fname)
+            texts = [json.loads(item) for item in open(fpath).read().strip().split('\n')]
+            if "specter" in model_name.lower():
+                texts = [model.tokenizer.sep_token.join([item["title"], item["content"]]) for item in texts]
+            elif "contriever" in model_name.lower():
+                texts = [". ".join([item["title"], item["content"]]).replace('..', '.').replace("?.", "?") for item in texts]
+            save_path = os.path.join(save_dir, fname.replace(".jsonl", ".npy"))
+            if os.path.exists(save_path):
+                continue
+            embed_chunks = model.encode(texts, **kwarg)
+            np.save(save_path, embed_chunks)
+        embed_chunks = model.encode(texts[:1], **kwarg)
+    return embed_chunks.shape[-1]
+
+def construct_index(index_dir, model_name, h_dim=768):
+
+    with open(os.path.join(index_dir, "metadatas.jsonl"), 'w') as f:
+        f.write("")
+    
+    if "specter" in model_name.lower():
+        index = faiss.IndexFlatL2(h_dim)
+    else:
+        index = faiss.IndexFlatIP(h_dim)
+
+    for fname in tqdm.tqdm(sorted(os.listdir(os.path.join(index_dir, "embedding")))):
+        curr_embed = np.load(os.path.join(index_dir, "embedding", fname))
+        index.add(curr_embed)
+        with open(os.path.join(index_dir, "metadatas.jsonl"), 'a+') as f:
+            f.write("\n".join([json.dumps({'index': i, 'source': fname.replace(".npy", "")}) for i in range(len(curr_embed))]) + '\n')
+
+    faiss.write_index(index, os.path.join(index_dir, "faiss.index"))
+
+
+class Retriever: 
+
+    def __init__(self, retriever_name="ncbi/MedCPT-Query-Encoder", corpus_name="textbooks", db_dir="./corpus", **kwarg):
+        self.retriever_name = retriever_name
+        self.corpus_name = corpus_name
+
+        self.db_dir = db_dir
+        if not os.path.exists(self.db_dir):
+            os.makedirs(self.db_dir)
+        self.chunk_dir = os.path.join(self.db_dir, self.corpus_name, "chunk")
+        if not os.path.exists(self.chunk_dir):
+            os.system("git clone https://huggingface.co/datasets/MedRAG/{:s} {:s}".format(corpus_name, os.path.join(self.db_dir, self.corpus_name)))
+        self.index_dir = os.path.join(self.db_dir, self.corpus_name, "index", self.retriever_name.replace("Query-Encoder", "Article-Encoder"))
+        if os.path.exists(os.path.join(self.index_dir, "faiss.index")):
+            self.index = faiss.read_index(os.path.join(self.index_dir, "faiss.index"))
+            self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]
+        else:
+            print("[In progress] Indexing the {:s} corpus with {:s} retriever...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
+            h_dim = embed(chunk_dir=self.chunk_dir, index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), **kwarg)
+            print("[In progress] Embedding finished! The dimension of the embeddings is {:d}.".format(h_dim))
+            construct_index(index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), h_dim=h_dim)
+            print("[Finished]Corpus indexing finished!")
+            self.index = faiss.read_index(os.path.join(self.index_dir, "faiss.index"))
+            self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]            
+        if "contriever" in retriever_name.lower():
+            self.embedding_function = SentenceTransformer(self.retriever_name, device="cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.embedding_function = CustomizeSentenceTransformer(self.retriever_name, device="cuda" if torch.cuda.is_available() else "cpu")
+        self.embedding_function.eval()
+
+    def get_relevant_documents(self, question, k=32, **kwarg):
+        assert type(question) == str
+        question = [question]
+
+        with torch.no_grad():
+            query_embed = self.embedding_function.encode(question, **kwarg)
+        res_ = self.index.search(query_embed, k=k)
+
+        indices = [self.metadatas[i] for i in res_[1][0]]
+        texts = self.idx2txt(indices)
+        scores = res_[0][0].tolist()
+        
+        return texts, scores
+
+    def idx2txt(self, indices): # return List of Dict of str
+        '''
+        Input: List of Dict( {"source": str, "index": int} )
+        Output: List of str
+        '''
+        return [json.loads(open(os.path.join(self.chunk_dir, i["source"]+".jsonl")).read().strip().split('\n')[i["index"]]) for i in indices]
+
+class RetrievalSystem:
+
+    def __init__(self, retriever_name="MedCPT", corpus_name="Textbooks", db_dir="./corpus", **kwarg):
+        self.retriever_name = retriever_name
+        self.corpus_name = corpus_name
+        assert self.corpus_name in corpus_names
+        assert self.retriever_name in retriever_names
+        self.retrievers = []
+        for retriever in retriever_names[self.retriever_name]:
+            self.retrievers.append([])
+            for corpus in corpus_names[self.corpus_name]:
+                self.retrievers[-1].append(Retriever(retriever, corpus, db_dir, **kwarg)) # deal with Retriever later
+    
+    def retrieve(self, question, k=32, **kwarg):
+        '''
+            Given questions, return the relevant snippets from the corpus
+        '''
+        assert type(question) == str
+
+        texts = []
+        scores = []
+        for i in range(len(retriever_names[self.retriever_name])):
+            texts.append([])
+            scores.append([])
+            for j in range(len(corpus_names[self.corpus_name])):
+                t, s = self.retrievers[i][j].get_relevant_documents(question, k=k, **kwarg)
+                texts[-1].append(t)
+                scores[-1].append(s)
+        texts, scores = self.merge(texts, scores)
+
+        return texts, scores
+
+    def merge(self, texts, scores):
+        '''
+            Merge the texts and scores from different retrievers
+        '''
+        return texts[0][0], scores[0][0] # return the results for the retriever and the first corpus for now
