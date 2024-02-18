@@ -79,9 +79,9 @@ options = {
 
 ## CoT Prompting
 cot = MedRAG(llm_name="OpenAI/gpt-3.5-turbo-16k", rag=False)
-answer, snippets, scores = cot.answer(question=question, options=options) # scores are given by the retrieval system
+answer, _, _ = cot.answer(question=question, options=options)
 
 ## MedRAG
 medrag = MedRAG(llm_name="OpenAI/gpt-3.5-turbo-16k", rag=True, retriever_name="MedCPT", corpus_name="Textbooks")
-answer, snippets, scores = medrag.answer(question=question, options=options) # scores are given by the retrieval system
+answer, snippets, scores = medrag.answer(question=question, options=options, k=32) # scores are given by the retrieval system
 ```
