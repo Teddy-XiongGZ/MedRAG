@@ -8,6 +8,7 @@
 - - [Corpus](#corpus)
 - - [Retriever](#retriever)
 - - [LLM](#llm)
+- [Requirements](#requirements)
 - [Usage](#usage)
 
 
@@ -60,11 +61,16 @@ Temperatures are set to 0 for deterministic outputs.
 
 (Context: context length of the LLM; Open: Open-source.)
 
+## Requirements
+Please first install the required packages in `requirements.txt`.
+
+For GPT-3.5/GPT-4, an OpenAI API key is needed. Replace the placeholder with your key in `src/config.py`.
+
+Git-lfs is required to download and load corpora for the first time
+
 ## Usage
 
 Currently, we only provide support for Textbooks for demonstration.
-
-git-lfs is required to download and load corpora for the first time
 
 ```python
 from src.medrag import MedRAG
