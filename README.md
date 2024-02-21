@@ -10,7 +10,7 @@
 - - [LLM](#llm)
 - [Requirements](#requirements)
 - [Usage](#usage)
-
+- [Citation](#citation)
 
 ## Introduction
 
@@ -70,7 +70,7 @@ Git-lfs is required to download and load corpora for the first time
 
 ## Usage
 
-Currently, we only provide support for Textbooks for demonstration.
+Currently, we provide supports for PubMed, Textbooks, StatPearls and Wikipedia.
 
 ```python
 from src.medrag import MedRAG
@@ -90,4 +90,14 @@ answer, _, _ = cot.answer(question=question, options=options)
 ## MedRAG
 medrag = MedRAG(llm_name="OpenAI/gpt-3.5-turbo-16k", rag=True, retriever_name="MedCPT", corpus_name="Textbooks")
 answer, snippets, scores = medrag.answer(question=question, options=options, k=32) # scores are given by the retrieval system
+```
+
+## Citation
+```
+@article{xiong2024benchmarking,
+    title={Benchmarking Retrieval-Augmented Generation for Medicine}, 
+    author={Guangzhi Xiong and Qiao Jin and Zhiyong Lu and Aidong Zhang},
+    journal={arXiv preprint arXiv:2402.13178},
+    year={2024}
+}
 ```

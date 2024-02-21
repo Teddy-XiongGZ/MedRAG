@@ -16,6 +16,6 @@ if __name__ == "__main__":
     for fname in tqdm.tqdm(fnames):
         fpath = os.path.join("corpus/textbooks/en", fname)
         texts = text_splitter.split_text(open(fpath).read().strip())
-        saved_text = [json.dumps({"title": fname.strip(".txt"), "content": re.sub("\s+", " ", texts[i])}) for i in range(len(texts))]
+        saved_text = [json.dumps({"id": '_'.join([fname.replace(".txt", ''), str(i)]), "title": fname.strip(".txt"), "content": re.sub("\s+", " ", texts[i])}) for i in range(len(texts))]
         with open("corpus/textbooks/chunk/{:s}".format(fname.replace(".txt", ".jsonl")), 'w') as f:
             f.write('\n'.join(saved_text))

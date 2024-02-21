@@ -99,17 +99,24 @@ class Retriever:
             os.makedirs(self.db_dir)
         self.chunk_dir = os.path.join(self.db_dir, self.corpus_name, "chunk")
         if not os.path.exists(self.chunk_dir):
+            print("Cloning the {:s} corpus from Huggingface...".format(self.corpus_name))
             os.system("git clone https://huggingface.co/datasets/MedRAG/{:s} {:s}".format(corpus_name, os.path.join(self.db_dir, self.corpus_name)))
+            if self.corpus_name == "statpearls":
+                print("Downloading the statpearls corpus from NCBI bookshelf...")
+                os.system("wget https://ftp.ncbi.nlm.nih.gov/pub/litarch/3d/12/statpearls_NBK430685.tar.gz -P {:s}".format(os.path.join(self.db_dir, self.corpus_name)))
+                os.system("tar -xzvf {:s} -C {:s}".format(os.path.join(db_dir, self.corpus_name, "statpearls_NBK430685.tar.gz"), os.path.join(self.db_dir, self.corpus_name)))
+                print("Chunking the statpearls corpus...")
+                os.system("python src/data/statpearls.py")
         self.index_dir = os.path.join(self.db_dir, self.corpus_name, "index", self.retriever_name.replace("Query-Encoder", "Article-Encoder"))
         if os.path.exists(os.path.join(self.index_dir, "faiss.index")):
             self.index = faiss.read_index(os.path.join(self.index_dir, "faiss.index"))
             self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]
         else:
-            print("[In progress] Indexing the {:s} corpus with {:s} retriever...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
+            print("[In progress] Embedding the {:s} corpus with the {:s} retriever...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
             h_dim = embed(chunk_dir=self.chunk_dir, index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), **kwarg)
             print("[In progress] Embedding finished! The dimension of the embeddings is {:d}.".format(h_dim))
             construct_index(index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), h_dim=h_dim)
-            print("[Finished]Corpus indexing finished!")
+            print("[Finished] Corpus indexing finished!")
             self.index = faiss.read_index(os.path.join(self.index_dir, "faiss.index"))
             self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]            
         if "contriever" in retriever_name.lower():
