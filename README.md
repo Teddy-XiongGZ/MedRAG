@@ -66,11 +66,13 @@ Please first install the required packages in `requirements.txt`.
 
 For GPT-3.5/GPT-4, an OpenAI API key is needed. Replace the placeholder with your key in `src/config.py`.
 
-Git-lfs is required to download and load corpora for the first time
+Git-lfs is required to download and load corpora for the first time.
+
+Java is requried for using BM25.
 
 ## Usage
 
-Currently, we provide supports for PubMed, Textbooks, StatPearls and Wikipedia.
+Currently, we provide supports for single corpora and retrievers.
 
 ```python
 from src.medrag import MedRAG

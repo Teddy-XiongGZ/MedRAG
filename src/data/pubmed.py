@@ -3,6 +3,16 @@ import gzip
 import tqdm
 import json
 
+def ends_with_ending_punctuation(s):
+    ending_punctuation = ('.', '?', '!')
+    return any(s.endswith(char) for char in ending_punctuation)
+
+def concat(title, content):
+    if ends_with_ending_punctuation(title.strip()):
+        return title.strip() + " " + content.strip()
+    else:
+        return title.strip() + ". " + content.strip()
+
 def extract(gz_fpath):
     titles = []
     abstracts = []
@@ -44,6 +54,6 @@ if __name__ == "__main__":
             continue
         gz_fpath = os.path.join("corpus/pubmed/baseline", fname)
         titles, abstracts, ids = extract(gz_fpath)
-        saved_text = [json.dumps({"id": "PMID:"+str(ids[i]), "title": titles[i], "content": abstracts[i]}) for i in range(len(titles))]
+        saved_text = [json.dumps({"id": "PMID:"+str(ids[i]), "title": titles[i], "content": abstracts[i], "contents": concat(titles[i], abstracts[i])}) for i in range(len(titles))]
         with open("corpus/pubmed/chunk/{:s}".format(fname.replace(".xml.gz", ".jsonl")), 'w') as f:
             f.write('\n'.join(saved_text))

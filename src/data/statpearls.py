@@ -3,6 +3,16 @@ import json
 import tqdm
 import xml.etree.ElementTree as ET
 
+def ends_with_ending_punctuation(s):
+    ending_punctuation = ('.', '?', '!')
+    return any(s.endswith(char) for char in ending_punctuation)
+
+def concat(title, content):
+    if ends_with_ending_punctuation(title.strip()):
+        return title.strip() + " " + content.strip()
+    else:
+        return title.strip() + ". " + content.strip()
+
 def extract_text(element):
     text = (element.text or "").strip()
 
@@ -49,10 +59,12 @@ def extract(fpath):
                 if len(curr_text) < 200 and last_text is not None and len(last_text + curr_text) < 1000:
                     last_text = " ".join([last_json['content'], curr_text])
                     last_json = {"id": last_json['id'], "title": last_json['title'], "content": last_text}
+                    last_json["contents"] = concat(last_json["title"], last_json["content"])
                     saved_text[-1] = json.dumps(last_json)
                 else:
                     last_text = curr_text
                     last_json = {"id": '_'.join([fname, str(j)]), "title": prefix, "content": curr_text}
+                    last_json["contents"] = concat(last_json["title"], last_json["content"])
                     saved_text.append(json.dumps(last_json))
                     j += 1
             elif ch.tag == 'list':
@@ -60,17 +72,19 @@ def extract(fpath):
                 if last_text is not None and len(" ".join(list_text) + last_text) < 1000:
                     last_text = " ".join([last_json["content"]] + list_text)
                     last_json = {"id": last_json['id'], "title": last_json['title'], "content": last_text}
+                    last_json["contents"] = concat(last_json["title"], last_json["content"])
                     saved_text[-1] = json.dumps(last_json)
                 elif len(" ".join(list_text)) < 1000:
                     last_text = " ".join(list_text)
                     last_json = {"id": '_'.join([fname, str(j)]), "title": prefix, "content": last_text}
+                    last_json["contents"] = concat(last_json["title"], last_json["content"])
                     saved_text.append(json.dumps(last_json))
                     j += 1
                 else:
                     last_text = None
                     last_json = None                    
                     for c in list_text:
-                        saved_text.append(json.dumps({"id": '_'.join([fname, str(j)]), "title": prefix, "content": c}))
+                        saved_text.append(json.dumps({"id": '_'.join([fname, str(j)]), "title": prefix, "content": c, "contents": concat(prefix, c)}))
                         j += 1
                 if last_node is not None and is_subtitle(last_node):
                     sub_title = ""
