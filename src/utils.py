@@ -9,11 +9,11 @@ import tqdm
 import numpy as np
 
 corpus_names = {
-    "PubMed": ["pubmed_abs"],
+    "PubMed": ["pubmed"],
     "Textbooks": ["textbooks"],
     "StatPearls": ["statpearls"],
     "Wikipedia": ["wikipedia"],
-    "MedCorp": ["pubmed_abs", "textbooks", "statpearls", "wikipedia"],
+    "MedCorp": ["pubmed", "textbooks", "statpearls", "wikipedia"],
 }
 
 retriever_names = {
