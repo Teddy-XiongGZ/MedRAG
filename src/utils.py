@@ -56,6 +56,8 @@ def embed(chunk_dir, index_dir, model_name, **kwarg):
     with torch.no_grad():
         for fname in tqdm.tqdm(fnames):
             fpath = os.path.join(chunk_dir, fname)
+            if open(fpath).read().strip() == "":
+                continue
             texts = [json.loads(item) for item in open(fpath).read().strip().split('\n')]
             if "specter" in model_name.lower():
                 texts = [model.tokenizer.sep_token.join([item["title"], item["content"]]) for item in texts]
