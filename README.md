@@ -62,13 +62,16 @@ Temperatures are set to 0 for deterministic outputs.
 (Context: context length of the LLM; Open: Open-source.)
 
 ## Requirements
-Please first install the required packages in `requirements.txt`.
 
-For GPT-3.5/GPT-4, an OpenAI API key is needed. Replace the placeholder with your key in `src/config.py`.
+- First, install PyTorch suitable for your system's CUDA version by following the [official instructions](https://pytorch.org/get-started/locally/) (2.1.1+cu121 in our case).
 
-Git-lfs is required to download and load corpora for the first time.
+- Then, install the remaining requirements using: `pip install -r requirements.txt`,
 
-Java is requried for using BM25.
+- For GPT-3.5/GPT-4, an OpenAI API key is needed. Replace the placeholder with your key in `src/config.py`.
+
+- Git-lfs is required to download and load corpora for the first time.
+
+- Java is requried for using BM25.
 
 ## Usage
 

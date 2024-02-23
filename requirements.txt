@@ -7,4 +7,4 @@ transformers==4.37.2
 sentence_transformers==2.2.2
 pyserini==0.22.1
 tiktoken==0.6.0
-torch==2.1.1+cu121
+datasets==2.16.1
