@@ -2,7 +2,7 @@
 
 `MedRAG` a systematic toolkit for Retrieval-Augmented Generation (RAG) on medical question answering (QA). `MedRAG` is used to implement various RAG systems for the benchmark study on our [`MIRAGE`](https://github.com/Teddy-XiongGZ/MIRAGE) (Medical Information Retrieval-Augmented Generation Evaluation).
 
-[![Preprint](https://img.shields.io/badge/preprint-available-brightgreen)](https://github.com/Teddy-XiongGZ/MedRAG)
+[![Preprint](https://img.shields.io/badge/preprint-available-brightgreen)](https://arxiv.org/abs/2402.13178)
 [![Homepage](https://img.shields.io/badge/homepage-available-blue)](https://teddy-xionggz.github.io/benchmark-medical-rag/)
 [![Dataset](https://img.shields.io/badge/dataset-available-yellow)](https://huggingface.co/MedRAG)
 
