@@ -4,7 +4,7 @@
 
 [![Preprint](https://img.shields.io/badge/preprint-available-brightgreen)](https://arxiv.org/abs/2402.13178)
 [![Homepage](https://img.shields.io/badge/homepage-available-blue)](https://teddy-xionggz.github.io/benchmark-medical-rag/)
-[![Dataset](https://img.shields.io/badge/dataset-available-yellow)](https://huggingface.co/MedRAG)
+[![Corpus](https://img.shields.io/badge/corpus-available-yellow)](https://huggingface.co/MedRAG)
 
 ## Table of Contents
 
