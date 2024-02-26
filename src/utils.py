@@ -56,6 +56,9 @@ def embed(chunk_dir, index_dir, model_name, **kwarg):
     with torch.no_grad():
         for fname in tqdm.tqdm(fnames):
             fpath = os.path.join(chunk_dir, fname)
+            save_path = os.path.join(save_dir, fname.replace(".jsonl", ".npy"))
+            if os.path.exists(save_path):
+                continue
             if open(fpath).read().strip() == "":
                 continue
             texts = [json.loads(item) for item in open(fpath).read().strip().split('\n')]
@@ -63,12 +66,11 @@ def embed(chunk_dir, index_dir, model_name, **kwarg):
                 texts = [model.tokenizer.sep_token.join([item["title"], item["content"]]) for item in texts]
             elif "contriever" in model_name.lower():
                 texts = [". ".join([item["title"], item["content"]]).replace('..', '.').replace("?.", "?") for item in texts]
-            save_path = os.path.join(save_dir, fname.replace(".jsonl", ".npy"))
-            if os.path.exists(save_path):
-                continue
+            elif "medcpt" in model_name.lower():
+                texts = [[item["title"], item["content"]] for item in texts]
             embed_chunks = model.encode(texts, **kwarg)
             np.save(save_path, embed_chunks)
-        embed_chunks = model.encode(texts[:1], **kwarg)
+        embed_chunks = model.encode([""], **kwarg)
     return embed_chunks.shape[-1]
 
 def construct_index(index_dir, model_name, h_dim=768):
@@ -88,6 +90,7 @@ def construct_index(index_dir, model_name, h_dim=768):
             f.write("\n".join([json.dumps({'index': i, 'source': fname.replace(".npy", "")}) for i in range(len(curr_embed))]) + '\n')
 
     faiss.write_index(index, os.path.join(index_dir, "faiss.index"))
+    return index
 
 
 class Retriever: 
@@ -127,9 +130,8 @@ class Retriever:
                 print("[In progress] Embedding the {:s} corpus with the {:s} retriever...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
                 h_dim = embed(chunk_dir=self.chunk_dir, index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), **kwarg)
                 print("[In progress] Embedding finished! The dimension of the embeddings is {:d}.".format(h_dim))
-                construct_index(index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), h_dim=h_dim)
+                self.index = construct_index(index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), h_dim=h_dim)
                 print("[Finished] Corpus indexing finished!")
-                self.index = faiss.read_index(os.path.join(self.index_dir, "faiss.index"))
                 self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]            
             if "contriever" in retriever_name.lower():
                 self.embedding_function = SentenceTransformer(self.retriever_name, device="cuda" if torch.cuda.is_available() else "cpu")
@@ -166,7 +168,7 @@ class Retriever:
 
 class RetrievalSystem:
 
-    def __init__(self, retriever_name="MedCPT", corpus_name="Textbooks", db_dir="./corpus", **kwarg):
+    def __init__(self, retriever_name="MedCPT", corpus_name="Textbooks", db_dir="./corpus"):
         self.retriever_name = retriever_name
         self.corpus_name = corpus_name
         assert self.corpus_name in corpus_names
@@ -175,9 +177,9 @@ class RetrievalSystem:
         for retriever in retriever_names[self.retriever_name]:
             self.retrievers.append([])
             for corpus in corpus_names[self.corpus_name]:
-                self.retrievers[-1].append(Retriever(retriever, corpus, db_dir, **kwarg)) # deal with Retriever later
+                self.retrievers[-1].append(Retriever(retriever, corpus, db_dir))
     
-    def retrieve(self, question, k=32, **kwarg):
+    def retrieve(self, question, k=32, rrf_k=100):
         '''
             Given questions, return the relevant snippets from the corpus
         '''
@@ -185,19 +187,59 @@ class RetrievalSystem:
 
         texts = []
         scores = []
+
+        if "RRF" in self.retriever_name:
+            k_ = max(k * 2, 100)
+        else:
+            k_ = k
         for i in range(len(retriever_names[self.retriever_name])):
             texts.append([])
             scores.append([])
             for j in range(len(corpus_names[self.corpus_name])):
-                t, s = self.retrievers[i][j].get_relevant_documents(question, k=k, **kwarg)
+                t, s = self.retrievers[i][j].get_relevant_documents(question, k=k_)
                 texts[-1].append(t)
                 scores[-1].append(s)
-        texts, scores = self.merge(texts, scores)
+        texts, scores = self.merge(texts, scores, k=k, rrf_k=rrf_k)
 
         return texts, scores
 
-    def merge(self, texts, scores):
+    def merge(self, texts, scores, k=32, rrf_k=100):
         '''
             Merge the texts and scores from different retrievers
         '''
-        return texts[0][0], scores[0][0] # return the results for the retriever and the first corpus for now
+        RRF_dict = {}
+        for i in range(len(retriever_names[self.retriever_name])):
+            texts_all, scores_all = None, None
+            for j in range(len(corpus_names[self.corpus_name])):
+                if texts_all is None:
+                    texts_all = texts[i][j]
+                    scores_all = scores[i][j]
+                else:
+                    texts_all = texts_all + texts[i][j]
+                    scores_all = scores_all + scores[i][j]
+            if "specter" in retriever_names[self.retriever_name][i].lower():
+                sorted_index = np.array(scores_all).argsort()
+            else:
+                sorted_index = np.array(scores_all).argsort()[::-1]
+            texts[i] = [texts_all[i] for i in sorted_index]
+            scores[i] = [scores_all[i] for i in sorted_index]
+            for j, item in enumerate(texts[i]):
+                if item["id"] in RRF_dict:
+                    RRF_dict[item["id"]]["score"] += 1 / (rrf_k + j + 1)
+                    RRF_dict[item["id"]]["count"] += 1
+                else:
+                    RRF_dict[item["id"]] = {
+                        "id": item["id"],
+                        "title": item["title"],
+                        "content": item["content"],
+                        "score": 1 / (rrf_k + j + 1),
+                        "count": 1
+                        }
+        RRF_list = sorted(RRF_dict.items(), key=lambda x: x[1]["score"], reverse=True)
+        if len(texts) == 1:
+            texts = texts[0][:k]
+            scores = scores[0][:k]
+        else:
+            texts = [dict((key, item[1][key]) for key in ("id", "title", "content")) for item in RRF_list[:k]]
+            scores = [item[1]["score"] for item in RRF_list[:k]]
+        return texts, scores

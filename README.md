@@ -6,6 +6,9 @@
 [![Homepage](https://img.shields.io/badge/homepage-available-blue)](https://teddy-xionggz.github.io/benchmark-medical-rag/)
 [![Corpus](https://img.shields.io/badge/corpus-available-yellow)](https://huggingface.co/MedRAG)
 
+## News
+- (02/26/2024) The code has been updated. It supports all corpora and retrievers introduced in our paper now.
+
 ## Table of Contents
 
 - [Introduction](#introduction)
@@ -78,8 +81,6 @@ Temperatures are set to 0 for deterministic outputs.
 - Java is requried for using BM25.
 
 ## Usage
-
-Currently, we provide supports for single corpora and retrievers.
 
 ```python
 from src.medrag import MedRAG

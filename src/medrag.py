@@ -74,7 +74,7 @@ class MedRAG:
                 model_kwargs={"cache_dir":self.cache_dir},
             )
 
-    def answer(self, question, options=None, k=32, save_dir = None):
+    def answer(self, question, options=None, k=32, rrf_k=100, save_dir = None):
         '''
         question (str): question to be answered
         options (Dict[str, str]): options to be chosen from
@@ -89,7 +89,7 @@ class MedRAG:
 
         # retrieve relevant snippets
         if self.rag:
-            retrieved_snippets, scores = self.retrieval_system.retrieve(question, k=k)
+            retrieved_snippets, scores = self.retrieval_system.retrieve(question, k=k, rrf_k=rrf_k)
             contexts = ["Document [{:d}] (Title: {:s}) {:s}".format(idx, retrieved_snippets[idx]["title"], retrieved_snippets[idx]["content"]) for idx in range(len(retrieved_snippets))]
             if len(contexts) == 0:
                 contexts = [""]
