@@ -169,7 +169,7 @@ class MedRAG:
         else:
             stopping_criteria = None
             prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            if "meditron" in llm_name.lower():
+            if "meditron" in self.llm_name.lower():
                 # stopping_criteria = custom_stop(["###", "User:", "\n\n\n"], self.tokenizer, input_len=len(self.tokenizer.encode(prompt_cot, add_special_tokens=True)))
                 stopping_criteria = self.custom_stop(["###", "User:", "\n\n\n"], input_len=len(self.tokenizer.encode(prompt_cot, add_special_tokens=True)))
             response = self.model(
