@@ -7,6 +7,7 @@
 [![Corpus](https://img.shields.io/badge/corpus-available-yellow)](https://huggingface.co/MedRAG)
 
 ## News
+- (04/26/2024) Add supports for `Google/gemini-1.0-pro` and `meta-llama/Meta-Llama-3-70B-Instruct`.
 - (02/26/2024) The code has been updated. It supports all corpora and retrievers introduced in our paper now.
 
 ## Table of Contents
@@ -102,12 +103,23 @@ medrag = MedRAG(llm_name="OpenAI/gpt-3.5-turbo-16k", rag=True, retriever_name="M
 answer, snippets, scores = medrag.answer(question=question, options=options, k=32) # scores are given by the retrieval system
 ```
 
+## Compatibility
+We've [tested](https://teddy-xionggz.github.io/MIRAGE/) the following LLMs on our MedRAG toolkit:
+- OpenAI/gpt-4
+- OpenAI/gpt-3.5-turbo
+- Google/gemini-1.0-pro
+- meta-llama/Meta-Llama-3-70B-Instruct
+- meta-llama/Llama-2-70b-chat-hf
+- mistralai/Mixtral-8x7B-Instruct-v0.1
+- epfl-llm/meditron-70b
+- axiong/PMC_LLaMA_13B
+
 ## Citation
 ```
 @article{xiong2024benchmarking,
-    title={Benchmarking Retrieval-Augmented Generation for Medicine}, 
-    author={Guangzhi Xiong and Qiao Jin and Zhiyong Lu and Aidong Zhang},
-    journal={arXiv preprint arXiv:2402.13178},
-    year={2024}
+  title={Benchmarking retrieval-augmented generation for medicine},
+  author={Xiong, Guangzhi and Jin, Qiao and Lu, Zhiyong and Zhang, Aidong},
+  journal={arXiv preprint arXiv:2402.13178},
+  year={2024}
 }
 ```

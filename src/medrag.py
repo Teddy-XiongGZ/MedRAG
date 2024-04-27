@@ -47,7 +47,26 @@ class MedRAG:
                 self.max_length = 32768
                 self.context_length = 30000
             self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        elif "gemini" in self.llm_name.lower():
+            import google.generativeai as genai
+            genai.configure(api_key=os.environ['GOOGLE_API_KEY'])
+            self.model = genai.GenerativeModel(
+                model_name=self.llm_name.split('/')[-1],
+                generation_config={
+                    "temperature": 0,
+                    "max_output_tokens": 2048,
+                }
+            )
+            if "1.5" in self.llm_name.lower():
+                self.max_length = 1048576
+                self.context_length = 1040384
+            else:
+                self.max_length = 30720
+                self.context_length = 28672
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
         else:
+            self.max_length = 2048
+            self.context_length = 1024
             self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
             if "mixtral" in llm_name.lower():
                 self.tokenizer.chat_template = open('./templates/mistral-instruct.jinja').read().replace('    ', '').replace('\n', '')
@@ -56,6 +75,9 @@ class MedRAG:
             elif "llama-2" in llm_name.lower():
                 self.max_length = 4096
                 self.context_length = 3072
+            elif "llama-3" in llm_name.lower():
+                self.max_length = 8192
+                self.context_length = 7168
             elif "meditron-70b" in llm_name.lower():
                 self.tokenizer.chat_template = open('./templates/meditron.jinja').read().replace('    ', '').replace('\n', '')
                 self.max_length = 4096
@@ -69,7 +91,8 @@ class MedRAG:
             self.model = transformers.pipeline(
                 "text-generation",
                 model=self.llm_name,
-                torch_dtype=torch.float16,
+                # torch_dtype=torch.float16,
+                torch_dtype=torch.bfloat16,
                 device_map="auto",
                 model_kwargs={"cache_dir":self.cache_dir},
             )
@@ -94,6 +117,8 @@ class MedRAG:
             if len(contexts) == 0:
                 contexts = [""]
             if "openai" in self.llm_name.lower():
+                contexts = [self.tokenizer.decode(self.tokenizer.encode("\n".join(contexts))[:self.context_length])]
+            elif "gemini" in self.llm_name.lower():
                 contexts = [self.tokenizer.decode(self.tokenizer.encode("\n".join(contexts))[:self.context_length])]
             else:
                 contexts = [self.tokenizer.decode(self.tokenizer.encode("\n".join(contexts), add_special_tokens=False)[:self.context_length])]
@@ -133,17 +158,6 @@ class MedRAG:
         
         return answers[0] if len(answers)==1 else answers, retrieved_snippets, scores
             
-    @staticmethod
-    class CustomStoppingCriteria(StoppingCriteria):
-        def __init__(self, stop_words, tokenizer, input_len=0):
-            super().__init__()
-            self.tokenizer = tokenizer
-            self.stops_words = stop_words
-            self.input_len = input_len
-            def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor):
-                tokens = self.tokenizer.decode(input_ids[0][self.input_len:])
-                return any(stop in tokens for stop in self.stops_words)
-
     def custom_stop(self, stop_str, input_len=0):
         stopping_criteria = StoppingCriteriaList([CustomStoppingCriteria(stop_str, self.tokenizer, input_len)])
         return stopping_criteria
@@ -166,20 +180,45 @@ class MedRAG:
                     temperature=0.0,
                 )
             ans = response["choices"][0]["message"]["content"]
+        elif "gemini" in self.llm_name.lower():
+            response = self.model.generate_content(messages[0]["content"] + '\n\n' + messages[1]["content"])
+            ans = response.candidates[0].content.parts[0].text
         else:
             stopping_criteria = None
             prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             if "meditron" in self.llm_name.lower():
                 # stopping_criteria = custom_stop(["###", "User:", "\n\n\n"], self.tokenizer, input_len=len(self.tokenizer.encode(prompt_cot, add_special_tokens=True)))
-                stopping_criteria = self.custom_stop(["###", "User:", "\n\n\n"], input_len=len(self.tokenizer.encode(prompt_cot, add_special_tokens=True)))
-            response = self.model(
-                prompt,
-                do_sample=False,
-                eos_token_id=self.tokenizer.eos_token_id,
-                pad_token_id=self.tokenizer.eos_token_id,
-                max_length=self.max_length,
-                truncation=True,
-                stopping_criteria=stopping_criteria
-            )
+                stopping_criteria = self.custom_stop(["###", "User:", "\n\n\n"], input_len=len(self.tokenizer.encode(prompt, add_special_tokens=True)))
+            if "llama-3" in self.llm_name.lower():
+                response = self.model(
+                    prompt,
+                    do_sample=False,
+                    eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids("<|eot_id|>")],
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    max_length=self.max_length,
+                    truncation=True,
+                    stopping_criteria=stopping_criteria
+                )
+            else:
+                response = self.model(
+                    prompt,
+                    do_sample=False,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    max_length=self.max_length,
+                    truncation=True,
+                    stopping_criteria=stopping_criteria
+                )
             ans = response[0]["generated_text"]
         return ans
+
+class CustomStoppingCriteria(StoppingCriteria):
+    def __init__(self, stop_words, tokenizer, input_len=0):
+        super().__init__()
+        self.tokenizer = tokenizer
+        self.stops_words = stop_words
+        self.input_len = input_len
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor):
+        tokens = self.tokenizer.decode(input_ids[0][self.input_len:])
+        return any(stop in tokens for stop in self.stops_words)
