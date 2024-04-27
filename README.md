@@ -18,6 +18,7 @@
 - - [LLM](#llm)
 - [Requirements](#requirements)
 - [Usage](#usage)
+- [Compatibility](#compatibility)
 - [Citation](#citation)
 
 ## Introduction
