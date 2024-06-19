@@ -7,6 +7,8 @@
 [![Corpus](https://img.shields.io/badge/corpus-available-yellow)](https://huggingface.co/MedRAG)
 
 ## News
+- (06/19/2024) Add supports for openai>=1.0.0. MedRAG now allows pre-determined snippets/snippet ids as input.
+- (05/16/2024) Our [paper](https://arxiv.org/abs/2402.13178) has been accepted by ACL 2024 Findings!
 - (04/26/2024) Add supports for `Google/gemini-1.0-pro` and `meta-llama/Meta-Llama-3-70B-Instruct`.
 - (02/26/2024) The code has been updated. It supports all corpora and retrievers introduced in our paper now.
 
@@ -78,9 +80,9 @@ Temperatures are set to 0 for deterministic outputs.
 
 - For GPT-3.5/GPT-4, an OpenAI API key is needed. Replace the placeholder with your key in `src/config.py`.
 
-- Git-lfs is required to download and load corpora for the first time.
+- `Git-lfs` is required to download and load corpora for the first time.
 
-- Java is requried for using BM25.
+- `Java` is requried for using BM25.
 
 ## Usage
 
@@ -101,7 +103,17 @@ answer, _, _ = cot.answer(question=question, options=options)
 
 ## MedRAG
 medrag = MedRAG(llm_name="OpenAI/gpt-3.5-turbo-16k", rag=True, retriever_name="MedCPT", corpus_name="Textbooks")
+
+### MedRAG without pre-determined snippets
 answer, snippets, scores = medrag.answer(question=question, options=options, k=32) # scores are given by the retrieval system
+
+### MedRAG with pre-determined snippets
+snippets = [{'id': 'InternalMed_Harrison_30037', 'title': 'InternalMed_Harrison', 'content': 'On side of lesion Horizontal and vertical nystagmus, vertigo, nausea, vomiting, oscillopsia: Vestibular nerve or nucleus Facial paralysis: Seventh nerve Paralysis of conjugate gaze to side of lesion: Center for conjugate lateral gaze Deafness, tinnitus: Auditory nerve or cochlear nucleus Ataxia: Middle cerebellar peduncle and cerebellar hemisphere Impaired sensation over face: Descending tract and nucleus fifth nerve On side opposite lesion Impaired pain and thermal sense over one-half the body (may include face): Spinothalamic tract Although atheromatous disease rarely narrows the second and third segments of the vertebral artery, this region is subject to dissection, fibromuscular dysplasia, and, rarely, encroachment by osteophytic spurs within the vertebral foramina.', 'contents': 'InternalMed_Harrison. On side of lesion Horizontal and vertical nystagmus, vertigo, nausea, vomiting, oscillopsia: Vestibular nerve or nucleus Facial paralysis: Seventh nerve Paralysis of conjugate gaze to side of lesion: Center for conjugate lateral gaze Deafness, tinnitus: Auditory nerve or cochlear nucleus Ataxia: Middle cerebellar peduncle and cerebellar hemisphere Impaired sensation over face: Descending tract and nucleus fifth nerve On side opposite lesion Impaired pain and thermal sense over one-half the body (may include face): Spinothalamic tract Although atheromatous disease rarely narrows the second and third segments of the vertebral artery, this region is subject to dissection, fibromuscular dysplasia, and, rarely, encroachment by osteophytic spurs within the vertebral foramina.'}]
+answer, _, _ = medrag.answer(question=question, options=options, snippets=snippets)
+
+### MedRAG with pre-determined snippet ids
+snippets_ids = [{"id": s["id"]} for s in snippets]
+answer, snippets, _ = medrag.answer(question=question, options=options, snippets_ids=snippets_ids)
 ```
 
 ## Compatibility

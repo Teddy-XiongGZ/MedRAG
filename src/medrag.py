@@ -12,16 +12,33 @@ from transformers import StoppingCriteria, StoppingCriteriaList
 import tiktoken
 import sys
 sys.path.append("src")
-from utils import RetrievalSystem
+from utils import RetrievalSystem, DocExtracter
 from template import *
 
-if openai.api_key is None:
-    from config import config
-    openai.api_type = config["api_type"]
-    openai.api_base = config["api_base"] 
-    openai.api_version = config["api_version"]
-    openai.api_key = config["api_key"]
+from config import config
 
+openai.api_type = openai.api_type or os.getenv("OPENAI_API_TYPE") or config.get("api_type")
+openai.api_version = openai.api_version or os.getenv("OPENAI_API_VERSION") or config.get("api_version")
+openai.api_key = openai.api_key or os.getenv('OPENAI_API_KEY') or config["api_key"]
+
+if openai.__version__.startswith("0"):
+    openai.api_base = openai.api_base or os.getenv("OPENAI_API_BASE") or config.get("api_base")
+    if openai.api_type == "azure":
+        openai_client = lambda **x: openai.ChatCompletion.create(**{'engine' if k == 'model' else k: v for k, v in x.items()})["choices"][0]["message"]["content"]
+    else:
+        openai_client = lambda **x: openai.ChatCompletion.create(**x)["choices"][0]["message"]["content"]
+else:
+    if openai.api_type == "azure":
+        openai.azure_endpoint = openai.azure_endpoint or os.getenv("OPENAI_ENDPOINT") or config.get("azure_endpoint")
+        openai_client = lambda **x: openai.AzureOpenAI(
+            api_version=openai.api_version,
+            azure_endpoint=os.getenv("OPENAI_ENDPOINT"),
+            api_key=os.getenv("OPENAI_API_KEY"),
+        ).chat.completions.create(**x).choices[0].message.content
+    else:
+        openai_client = lambda **x: openai.OpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+        ).chat.completions.create(**x).choices[0].message.content
 
 class MedRAG:
 
@@ -32,6 +49,7 @@ class MedRAG:
         self.corpus_name = corpus_name
         self.db_dir = db_dir
         self.cache_dir = cache_dir
+        self.docExt = None
         if rag:
             self.retrieval_system = RetrievalSystem(self.retriever_name, self.corpus_name, self.db_dir)
         else:
@@ -97,22 +115,36 @@ class MedRAG:
                 model_kwargs={"cache_dir":self.cache_dir},
             )
 
-    def answer(self, question, options=None, k=32, rrf_k=100, save_dir = None):
+    def answer(self, question, options=None, k=32, rrf_k=100, save_dir = None, snippets=None, snippets_ids=None):
         '''
         question (str): question to be answered
         options (Dict[str, str]): options to be chosen from
         k (int): number of snippets to retrieve
+        rrf_k (int): parameter for Reciprocal Rank Fusion
         save_dir (str): directory to save the results
+        snippets (List[Dict]): list of snippets to be used
+        snippets_ids (List[Dict]): list of snippet ids to be used
         '''
 
         if options is not None:
             options = '\n'.join([key+". "+options[key] for key in sorted(options.keys())])
         else:
-            options = '' # double check this later!!!!!! See if new prompt tempates are needed.
+            options = ''
 
         # retrieve relevant snippets
         if self.rag:
-            retrieved_snippets, scores = self.retrieval_system.retrieve(question, k=k, rrf_k=rrf_k)
+            if snippets is not None:
+                retrieved_snippets = snippets[:k]
+                scores = []
+            elif snippets_ids is not None:
+                if self.docExt is None:
+                    self.docExt = DocExtracter(db_dir=self.db_dir, cache=True, corpus_name=self.corpus_name)
+                retrieved_snippets = self.docExt.extract(snippets_ids[:k])
+                scores = []
+            else:
+                assert self.retrieval_system is not None
+                retrieved_snippets, scores = self.retrieval_system.retrieve(question, k=k, rrf_k=rrf_k)
+
             contexts = ["Document [{:d}] (Title: {:s}) {:s}".format(idx, retrieved_snippets[idx]["title"], retrieved_snippets[idx]["content"]) for idx in range(len(retrieved_snippets))]
             if len(contexts) == 0:
                 contexts = [""]
@@ -167,19 +199,11 @@ class MedRAG:
         generate response given messages
         '''
         if "openai" in self.llm_name.lower():
-            if openai.api_type == "azure":
-                response = openai.ChatCompletion.create(
-                    engine=self.model,
-                    messages=messages,
-                    temperature=0.0,
-                )
-            else:
-                response = openai.ChatCompletion.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=0.0,
-                )
-            ans = response["choices"][0]["message"]["content"]
+            ans = openai_client(
+                model=self.model,
+                messages=messages,
+                temperature=0.0,
+            )
         elif "gemini" in self.llm_name.lower():
             response = self.model.generate_content(messages[0]["content"] + '\n\n' + messages[1]["content"])
             ans = response.candidates[0].content.parts[0].text

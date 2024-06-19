@@ -27,12 +27,24 @@ retriever_names = {
 
 class CustomizeSentenceTransformer(SentenceTransformer): # change the default pooling "MEAN" to "CLS"
 
-    def _load_auto_model(self, model_name_or_path):
+    def _load_auto_model(self, model_name_or_path, *args, **kwargs):
         """
         Creates a simple Transformer + CLS Pooling model and returns the modules
         """
         print("No sentence-transformers model found with name {}. Creating a new one with CLS pooling.".format(model_name_or_path))
-        transformer_model = Transformer(model_name_or_path)
+        token = kwargs.get('token', None)
+        cache_folder = kwargs.get('cache_folder', None)
+        revision = kwargs.get('revision', None)
+        trust_remote_code = kwargs.get('trust_remote_code', False)
+        if 'token' in kwargs or 'cache_folder' in kwargs or 'revision' in kwargs or 'trust_remote_code' in kwargs:
+            transformer_model = Transformer(
+                model_name_or_path,
+                cache_dir=cache_folder,
+                model_args={"token": token, "trust_remote_code": trust_remote_code, "revision": revision},
+                tokenizer_args={"token": token, "trust_remote_code": trust_remote_code, "revision": revision},
+            )
+        else:
+            transformer_model = Transformer(model_name_or_path)
         pooling_model = Pooling(transformer_model.get_word_embedding_dimension(), 'cls')
         return [transformer_model, pooling_model]
 
@@ -139,7 +151,7 @@ class Retriever:
                 self.embedding_function = CustomizeSentenceTransformer(self.retriever_name, device="cuda" if torch.cuda.is_available() else "cpu")
             self.embedding_function.eval()
 
-    def get_relevant_documents(self, question, k=32, **kwarg):
+    def get_relevant_documents(self, question, k=32, id_only=False, **kwarg):
         assert type(question) == str
         question = [question]
 
@@ -147,17 +159,21 @@ class Retriever:
             res_ = [[]]
             hits = self.index.search(question[0], k=k)
             res_[0].append(np.array([h.score for h in hits]))
+            ids = [h.docid for h in hits]
             indices = [{"source": '_'.join(h.docid.split('_')[:-1]), "index": eval(h.docid.split('_')[-1])} for h in hits]
         else:
             with torch.no_grad():
                 query_embed = self.embedding_function.encode(question, **kwarg)
             res_ = self.index.search(query_embed, k=k)
+            ids = ['_'.join([self.metadatas[i]["source"], str(self.metadatas[i]["index"])]) for i in res_[1][0]]
             indices = [self.metadatas[i] for i in res_[1][0]]
 
-        texts = self.idx2txt(indices)
         scores = res_[0][0].tolist()
         
-        return texts, scores
+        if id_only:
+            return [{"id":i} for i in ids], scores
+        else:
+            return self.idx2txt(indices), scores
 
     def idx2txt(self, indices): # return List of Dict of str
         '''
@@ -243,3 +259,66 @@ class RetrievalSystem:
             texts = [dict((key, item[1][key]) for key in ("id", "title", "content")) for item in RRF_list[:k]]
             scores = [item[1]["score"] for item in RRF_list[:k]]
         return texts, scores
+    
+
+class DocExtracter:
+    
+    def __init__(self, db_dir="./corpus", cache=False, corpus_name="MedCorp"):
+        self.db_dir = db_dir
+        self.cache = cache
+        print("Initializing the document extracter...")
+        for corpus in corpus_names[corpus_name]:
+            if not os.path.exists(os.path.join(self.db_dir, corpus, "chunk")):
+                print("Cloning the {:s} corpus from Huggingface...".format(corpus))
+                os.system("git clone https://huggingface.co/datasets/MedRAG/{:s} {:s}".format(corpus, os.path.join(self.db_dir, corpus)))
+                if corpus == "statpearls":
+                    print("Downloading the statpearls corpus from NCBI bookshelf...")
+                    os.system("wget https://ftp.ncbi.nlm.nih.gov/pub/litarch/3d/12/statpearls_NBK430685.tar.gz -P {:s}".format(os.path.join(self.db_dir, corpus)))
+                    os.system("tar -xzvf {:s} -C {:s}".format(os.path.join(self.db_dir, corpus, "statpearls_NBK430685.tar.gz"), os.path.join(self.db_dir, corpus)))
+                    print("Chunking the statpearls corpus...")
+                    os.system("python src/data/statpearls.py")
+        if self.cache:
+            if os.path.exists(os.path.join(self.db_dir, "_".join([corpus_name, "id2text.json"]))):
+                self.dict = json.load(open(os.path.join(self.db_dir, "_".join([corpus_name, "id2text.json"]))))
+            else:
+                self.dict = {}
+                for corpus in corpus_names[corpus_name]:
+                    for fname in tqdm.tqdm(sorted(os.listdir(os.path.join(self.db_dir, corpus, "chunk")))):
+                        if open(os.path.join(self.db_dir, corpus, "chunk", fname)).read().strip() == "":
+                            continue
+                        for i, line in enumerate(open(os.path.join(self.db_dir, corpus, "chunk", fname)).read().strip().split('\n')):
+                            item = json.loads(line)
+                            _ = item.pop("contents", None)
+                            # assert item["id"] not in self.dict
+                            self.dict[item["id"]] = item
+                with open(os.path.join(self.db_dir, "_".join([corpus_name, "id2text.json"])), 'w') as f:
+                    json.dump(self.dict, f)
+        else:
+            if os.path.exists(os.path.join(self.db_dir, "_".join([corpus_name, "id2path.json"]))):
+                self.dict = json.load(open(os.path.join(self.db_dir, "_".join([corpus_name, "id2path.json"]))))
+            else:
+                self.dict = {}
+                for corpus in corpus_names[corpus_name]:
+                    for fname in tqdm.tqdm(sorted(os.listdir(os.path.join(self.db_dir, corpus, "chunk")))):
+                        if open(os.path.join(self.db_dir, corpus, "chunk", fname)).read().strip() == "":
+                            continue
+                        for i, line in enumerate(open(os.path.join(self.db_dir, corpus, "chunk", fname)).read().strip().split('\n')):
+                            item = json.loads(line)
+                            # assert item["id"] not in self.dict
+                            self.dict[item["id"]] = {"fpath": os.path.join(corpus, "chunk", fname), "index": i}
+                with open(os.path.join(self.db_dir, "_".join([corpus_name, "id2path.json"])), 'w') as f:
+                    json.dump(self.dict, f, indent=4)
+        print("Initialization finished!")
+    
+    def extract(self, ids):
+        if self.cache:
+            output = []
+            for i in ids:
+                item = self.dict[i] if type(i) == str else self.dict[i["id"]]
+                output.append(item)
+        else:
+            output = []
+            for i in ids:
+                item = self.dict[i] if type(i) == str else self.dict[i["id"]]
+                output.append(json.loads(open(os.path.join(self.db_dir, item["fpath"])).read().strip().split('\n')[item["index"]]))
+        return output
