@@ -32,12 +32,12 @@ else:
         openai.azure_endpoint = openai.azure_endpoint or os.getenv("OPENAI_ENDPOINT") or config.get("azure_endpoint")
         openai_client = lambda **x: openai.AzureOpenAI(
             api_version=openai.api_version,
-            azure_endpoint=os.getenv("OPENAI_ENDPOINT"),
-            api_key=os.getenv("OPENAI_API_KEY"),
+            azure_endpoint=openai.azure_endpoint,
+            api_key=openai.api_key,
         ).chat.completions.create(**x).choices[0].message.content
     else:
         openai_client = lambda **x: openai.OpenAI(
-            api_key=os.getenv("OPENAI_API_KEY"),
+            api_key=openai.api_key,
         ).chat.completions.create(**x).choices[0].message.content
 
 class MedRAG:
