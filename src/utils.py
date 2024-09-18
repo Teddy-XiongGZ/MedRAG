@@ -25,6 +25,16 @@ retriever_names = {
     "RRF-4": ["bm25", "facebook/contriever", "allenai/specter", "ncbi/MedCPT-Query-Encoder"]
 }
 
+def ends_with_ending_punctuation(s):
+    ending_punctuation = ('.', '?', '!')
+    return any(s.endswith(char) for char in ending_punctuation)
+
+def concat(title, content):
+    if ends_with_ending_punctuation(title.strip()):
+        return title.strip() + " " + content.strip()
+    else:
+        return title.strip() + ". " + content.strip()
+
 class CustomizeSentenceTransformer(SentenceTransformer): # change the default pooling "MEAN" to "CLS"
 
     def _load_auto_model(self, model_name_or_path, *args, **kwargs):
@@ -80,20 +90,30 @@ def embed(chunk_dir, index_dir, model_name, **kwarg):
                 texts = [". ".join([item["title"], item["content"]]).replace('..', '.').replace("?.", "?") for item in texts]
             elif "medcpt" in model_name.lower():
                 texts = [[item["title"], item["content"]] for item in texts]
+            else:
+                texts = [concat(item["title"], item["content"]) for item in texts]
             embed_chunks = model.encode(texts, **kwarg)
             np.save(save_path, embed_chunks)
         embed_chunks = model.encode([""], **kwarg)
     return embed_chunks.shape[-1]
 
-def construct_index(index_dir, model_name, h_dim=768):
+def construct_index(index_dir, model_name, h_dim=768, HNSW=False, M=32):
 
     with open(os.path.join(index_dir, "metadatas.jsonl"), 'w') as f:
         f.write("")
     
-    if "specter" in model_name.lower():
-        index = faiss.IndexFlatL2(h_dim)
+    if HNSW:
+        M = M
+        if "specter" in model_name.lower():
+            index = faiss.IndexHNSWFlat(h_dim, M)
+        else:
+            index = faiss.IndexHNSWFlat(h_dim, M)
+            index.metric_type = faiss.METRIC_INNER_PRODUCT
     else:
-        index = faiss.IndexFlatIP(h_dim)
+        if "specter" in model_name.lower():
+            index = faiss.IndexFlatL2(h_dim)
+        else:
+            index = faiss.IndexFlatIP(h_dim)
 
     for fname in tqdm.tqdm(sorted(os.listdir(os.path.join(index_dir, "embedding")))):
         curr_embed = np.load(os.path.join(index_dir, "embedding", fname))
@@ -107,7 +127,7 @@ def construct_index(index_dir, model_name, h_dim=768):
 
 class Retriever: 
 
-    def __init__(self, retriever_name="ncbi/MedCPT-Query-Encoder", corpus_name="textbooks", db_dir="./corpus", **kwarg):
+    def __init__(self, retriever_name="ncbi/MedCPT-Query-Encoder", corpus_name="textbooks", db_dir="./corpus", HNSW=False, **kwarg):
         self.retriever_name = retriever_name
         self.corpus_name = corpus_name
 
@@ -142,10 +162,10 @@ class Retriever:
                 print("[In progress] Embedding the {:s} corpus with the {:s} retriever...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
                 h_dim = embed(chunk_dir=self.chunk_dir, index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), **kwarg)
                 print("[In progress] Embedding finished! The dimension of the embeddings is {:d}.".format(h_dim))
-                self.index = construct_index(index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), h_dim=h_dim)
+                self.index = construct_index(index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), h_dim=h_dim, HNSW=HNSW)
                 print("[Finished] Corpus indexing finished!")
                 self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]            
-            if "contriever" in retriever_name.lower():
+            if "contriever" in self.retriever_name.lower():
                 self.embedding_function = SentenceTransformer(self.retriever_name, device="cuda" if torch.cuda.is_available() else "cpu")
             else:
                 self.embedding_function = CustomizeSentenceTransformer(self.retriever_name, device="cuda" if torch.cuda.is_available() else "cpu")
@@ -195,7 +215,7 @@ class RetrievalSystem:
             for corpus in corpus_names[self.corpus_name]:
                 self.retrievers[-1].append(Retriever(retriever, corpus, db_dir))
     
-    def retrieve(self, question, k=32, rrf_k=100):
+    def retrieve(self, question, k=32, rrf_k=100, id_only=False):
         '''
             Given questions, return the relevant snippets from the corpus
         '''
@@ -212,7 +232,7 @@ class RetrievalSystem:
             texts.append([])
             scores.append([])
             for j in range(len(corpus_names[self.corpus_name])):
-                t, s = self.retrievers[i][j].get_relevant_documents(question, k=k_)
+                t, s = self.retrievers[i][j].get_relevant_documents(question, k=k_, id_only=id_only)
                 texts[-1].append(t)
                 scores[-1].append(s)
         texts, scores = self.merge(texts, scores, k=k, rrf_k=rrf_k)
@@ -246,8 +266,8 @@ class RetrievalSystem:
                 else:
                     RRF_dict[item["id"]] = {
                         "id": item["id"],
-                        "title": item["title"],
-                        "content": item["content"],
+                        "title": item.get("title", ""),
+                        "content": item.get("content", ""),
                         "score": 1 / (rrf_k + j + 1),
                         "count": 1
                         }
