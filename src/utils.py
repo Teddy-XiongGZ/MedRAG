@@ -204,7 +204,7 @@ class Retriever:
 
 class RetrievalSystem:
 
-    def __init__(self, retriever_name="MedCPT", corpus_name="Textbooks", db_dir="./corpus"):
+    def __init__(self, retriever_name="MedCPT", corpus_name="Textbooks", db_dir="./corpus", HNSW=False):
         self.retriever_name = retriever_name
         self.corpus_name = corpus_name
         assert self.corpus_name in corpus_names
@@ -213,7 +213,7 @@ class RetrievalSystem:
         for retriever in retriever_names[self.retriever_name]:
             self.retrievers.append([])
             for corpus in corpus_names[self.corpus_name]:
-                self.retrievers[-1].append(Retriever(retriever, corpus, db_dir))
+                self.retrievers[-1].append(Retriever(retriever, corpus, db_dir, HNSW=HNSW))
     
     def retrieve(self, question, k=32, rrf_k=100, id_only=False):
         '''
