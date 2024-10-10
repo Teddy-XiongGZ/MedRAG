@@ -82,6 +82,7 @@ Temperatures are set to 0 for deterministic outputs.
 ## Requirements
 
 - First, install PyTorch suitable for your system's CUDA version by following the [official instructions](https://pytorch.org/get-started/locally/) (2.1.1+cu121 in our case).
+- - New LLMs such as Llama 3.1 and Llama 3.2 were tested with '2.4.1+cu124' on our machine.
 
 - Then, install the remaining requirements using: `pip install -r requirements.txt`,
 
