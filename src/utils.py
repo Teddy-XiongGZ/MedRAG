@@ -13,6 +13,7 @@ corpus_names = {
     "Textbooks": ["textbooks"],
     "StatPearls": ["statpearls"],
     "Wikipedia": ["wikipedia"],
+    "MedText": ["textbooks", "statpearls"],
     "MedCorp": ["pubmed", "textbooks", "statpearls", "wikipedia"],
 }
 
@@ -160,7 +161,36 @@ class Retriever:
                 self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]
             else:
                 print("[In progress] Embedding the {:s} corpus with the {:s} retriever...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
-                h_dim = embed(chunk_dir=self.chunk_dir, index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), **kwarg)
+                if self.corpus_name in ["textbooks", "pubmed", "wikipedia"] and self.retriever_name in ["allenai/specter", "facebook/contriever", "ncbi/MedCPT-Query-Encoder"] and not os.path.exists(os.path.join(self.index_dir, "embedding")):
+                    print("[In progress] Downloading the {:s} embeddings given by the {:s} model...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
+                    os.makedirs(self.index_dir, exist_ok=True)
+                    if self.corpus_name == "textbooks":
+                        if self.retriever_name == "allenai/specter":
+                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EYRRpJbNDyBOmfzCOqfQzrsBwUX0_UT8-j_geDPcVXFnig?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
+                        elif self.retriever_name == "facebook/contriever":
+                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EQqzldVMCCVIpiFV4goC7qEBSkl8kj5lQHtNq8DvHJdAfw?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
+                        elif self.retriever_name == "ncbi/MedCPT-Query-Encoder":
+                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EQ8uXe4RiqJJm0Tmnx7fUUkBKKvTwhu9AqecPA3ULUxUqQ?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
+                    elif self.corpus_name == "pubmed":
+                        if self.retriever_name == "allenai/specter":
+                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/Ebz8ySXt815FotxC1KkDbuABNycudBCoirTWkKfl8SEswA?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
+                        elif self.retriever_name == "facebook/contriever":
+                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EWecRNfTxbRMnM0ByGMdiAsBJbGJOX_bpnUoyXY9Bj4_jQ?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
+                        elif self.retriever_name == "ncbi/MedCPT-Query-Encoder":
+                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EVCuryzOqy5Am5xzRu6KJz4B6dho7Tv7OuTeHSh3zyrOAw?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
+                    elif self.corpus_name == "wikipedia":
+                        if self.retriever_name == "allenai/specter":
+                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/Ed7zG3_ce-JOmGTbgof3IK0BdD40XcuZ7AGZRcV_5D2jkA?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
+                        elif self.retriever_name == "facebook/contriever":
+                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/ETKHGV9_KNBPmDM60MWjEdsBXR4P4c7zZk1HLLc0KVaTJw?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
+                        elif self.retriever_name == "ncbi/MedCPT-Query-Encoder":
+                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EXoxEANb_xBFm6fa2VLRmAcBIfCuTL-5VH6vl4GxJ06oCQ?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
+                    os.system("unzip {:s} -d {:s}".format(os.path.join(self.index_dir, "embedding.zip"), self.index_dir))
+                    os.system("rm {:s}".format(os.path.join(self.index_dir, "embedding.zip")))
+                    h_dim = 768
+                else:
+                    h_dim = embed(chunk_dir=self.chunk_dir, index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), **kwarg)
+
                 print("[In progress] Embedding finished! The dimension of the embeddings is {:d}.".format(h_dim))
                 self.index = construct_index(index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), h_dim=h_dim, HNSW=HNSW)
                 print("[Finished] Corpus indexing finished!")
@@ -204,7 +234,7 @@ class Retriever:
 
 class RetrievalSystem:
 
-    def __init__(self, retriever_name="MedCPT", corpus_name="Textbooks", db_dir="./corpus", HNSW=False):
+    def __init__(self, retriever_name="MedCPT", corpus_name="Textbooks", db_dir="./corpus", HNSW=False, cache=False):
         self.retriever_name = retriever_name
         self.corpus_name = corpus_name
         assert self.corpus_name in corpus_names
@@ -214,12 +244,21 @@ class RetrievalSystem:
             self.retrievers.append([])
             for corpus in corpus_names[self.corpus_name]:
                 self.retrievers[-1].append(Retriever(retriever, corpus, db_dir, HNSW=HNSW))
+        self.cache = cache
+        if self.cache:
+            self.docExt = DocExtracter(cache=True, corpus_name=self.corpus_name, db_dir=db_dir)
+        else:
+            self.docExt = None
     
     def retrieve(self, question, k=32, rrf_k=100, id_only=False):
         '''
             Given questions, return the relevant snippets from the corpus
         '''
         assert type(question) == str
+
+        output_id_only = id_only
+        if self.cache:
+            id_only = True
 
         texts = []
         scores = []
@@ -236,7 +275,8 @@ class RetrievalSystem:
                 texts[-1].append(t)
                 scores[-1].append(s)
         texts, scores = self.merge(texts, scores, k=k, rrf_k=rrf_k)
-
+        if self.cache:
+            texts = self.docExt.extract(texts)
         return texts, scores
 
     def merge(self, texts, scores, k=32, rrf_k=100):

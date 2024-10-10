@@ -3,7 +3,7 @@ python-liquid==1.10.2
 openai==0.28.0
 langchain==0.0.345
 tqdm==4.66.1
-transformers==4.41.2
+transformers==4.44.2
 sentence_transformers==2.2.2
 pyserini==0.22.1
 tiktoken==0.6.0

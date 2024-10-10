@@ -42,7 +42,7 @@ else:
 
 class MedRAG:
 
-    def __init__(self, llm_name="OpenAI/gpt-3.5-turbo-16k", rag=True, retriever_name="MedCPT", corpus_name="Textbooks", db_dir="./corpus", cache_dir=None):
+    def __init__(self, llm_name="OpenAI/gpt-3.5-turbo-16k", rag=True, follow_up=False, retriever_name="MedCPT", corpus_name="Textbooks", db_dir="./corpus", cache_dir=None, corpus_cache=False, HNSW=False):
         self.llm_name = llm_name
         self.rag = rag
         self.retriever_name = retriever_name
@@ -51,7 +51,7 @@ class MedRAG:
         self.cache_dir = cache_dir
         self.docExt = None
         if rag:
-            self.retrieval_system = RetrievalSystem(self.retriever_name, self.corpus_name, self.db_dir)
+            self.retrieval_system = RetrievalSystem(self.retriever_name, self.corpus_name, self.db_dir, cache=corpus_cache, HNSW=HNSW)
         else:
             self.retrieval_system = None
         self.templates = {"cot_system": general_cot_system, "cot_prompt": general_cot,
@@ -96,6 +96,9 @@ class MedRAG:
             elif "llama-3" in llm_name.lower():
                 self.max_length = 8192
                 self.context_length = 7168
+                if ".1" in llm_name or ".2" in llm_name:
+                    self.max_length = 131072
+                    self.context_length = 128000
             elif "meditron-70b" in llm_name.lower():
                 self.tokenizer.chat_template = open('./templates/meditron.jinja').read().replace('    ', '').replace('\n', '')
                 self.max_length = 4096
@@ -114,8 +117,66 @@ class MedRAG:
                 device_map="auto",
                 model_kwargs={"cache_dir":self.cache_dir},
             )
+        
+        self.follow_up = follow_up
+        if self.rag and self.follow_up:
+            self.answer = self.i_medrag_answer
+            self.templates["medrag_system"] = simple_medrag_system
+            self.templates["medrag_prompt"] = simple_medrag_prompt
+            self.templates["i_medrag_system"] = i_medrag_system
+            self.templates["follow_up_ask"] = follow_up_instruction_ask
+            self.templates["follow_up_answer"] = follow_up_instruction_answer
+        else:
+            self.answer = self.medrag_answer
 
-    def answer(self, question, options=None, k=32, rrf_k=100, save_dir = None, snippets=None, snippets_ids=None):
+    def custom_stop(self, stop_str, input_len=0):
+        stopping_criteria = StoppingCriteriaList([CustomStoppingCriteria(stop_str, self.tokenizer, input_len)])
+        return stopping_criteria
+
+    def generate(self, messages):
+        '''
+        generate response given messages
+        '''
+        if "openai" in self.llm_name.lower():
+            ans = openai_client(
+                model=self.model,
+                messages=messages,
+                temperature=0.0,
+            )
+        elif "gemini" in self.llm_name.lower():
+            response = self.model.generate_content(messages[0]["content"] + '\n\n' + messages[1]["content"])
+            ans = response.candidates[0].content.parts[0].text
+        else:
+            stopping_criteria = None
+            prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            if "meditron" in self.llm_name.lower():
+                # stopping_criteria = custom_stop(["###", "User:", "\n\n\n"], self.tokenizer, input_len=len(self.tokenizer.encode(prompt_cot, add_special_tokens=True)))
+                stopping_criteria = self.custom_stop(["###", "User:", "\n\n\n"], input_len=len(self.tokenizer.encode(prompt, add_special_tokens=True)))
+            if "llama-3" in self.llm_name.lower():
+                response = self.model(
+                    prompt,
+                    do_sample=False,
+                    eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids("<|eot_id|>")],
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    max_length=self.max_length,
+                    truncation=True,
+                    stopping_criteria=stopping_criteria
+                )
+            else:
+                response = self.model(
+                    prompt,
+                    do_sample=False,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    max_length=self.max_length,
+                    truncation=True,
+                    stopping_criteria=stopping_criteria
+                )
+            # ans = response[0]["generated_text"]
+            ans = response[0]["generated_text"][len(prompt):]
+        return ans
+
+    def medrag_answer(self, question, options=None, k=32, rrf_k=100, save_dir = None, snippets=None, snippets_ids=None, **kwargs):
         '''
         question (str): question to be answered
         options (Dict[str, str]): options to be chosen from
@@ -189,52 +250,147 @@ class MedRAG:
                 json.dump(answers, f, indent=4)
         
         return answers[0] if len(answers)==1 else answers, retrieved_snippets, scores
-            
-    def custom_stop(self, stop_str, input_len=0):
-        stopping_criteria = StoppingCriteriaList([CustomStoppingCriteria(stop_str, self.tokenizer, input_len)])
-        return stopping_criteria
 
-    def generate(self, messages):
-        '''
-        generate response given messages
-        '''
-        if "openai" in self.llm_name.lower():
-            ans = openai_client(
-                model=self.model,
-                messages=messages,
-                temperature=0.0,
-            )
-        elif "gemini" in self.llm_name.lower():
-            response = self.model.generate_content(messages[0]["content"] + '\n\n' + messages[1]["content"])
-            ans = response.candidates[0].content.parts[0].text
+    def i_medrag_answer(self, question, options=None, k=32, rrf_k=100, save_path = None, n_rounds=4, n_queries=3, qa_cache_path=None, **kwargs):
+        if options is not None:
+            options = '\n'.join([key+". "+options[key] for key in sorted(options.keys())])
         else:
-            stopping_criteria = None
-            prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            if "meditron" in self.llm_name.lower():
-                # stopping_criteria = custom_stop(["###", "User:", "\n\n\n"], self.tokenizer, input_len=len(self.tokenizer.encode(prompt_cot, add_special_tokens=True)))
-                stopping_criteria = self.custom_stop(["###", "User:", "\n\n\n"], input_len=len(self.tokenizer.encode(prompt, add_special_tokens=True)))
-            if "llama-3" in self.llm_name.lower():
-                response = self.model(
-                    prompt,
-                    do_sample=False,
-                    eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids("<|eot_id|>")],
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    max_length=self.max_length,
-                    truncation=True,
-                    stopping_criteria=stopping_criteria
+            options = ''
+        QUESTION_PROMPT = f"Here is the question:\n{question}\n\n{options}"
+
+        context = ""
+        qa_cache = []
+        if qa_cache_path is not None and os.path.exists(qa_cache_path):
+            qa_cache = eval(open(qa_cache_path, 'r').read())[:n_rounds]
+            if len(qa_cache) > 0:
+                context = qa_cache[-1]
+            n_rounds = n_rounds - len(qa_cache)
+        last_context = None
+
+        # Run in loop
+        max_iterations = n_rounds + 3
+        saved_messages = [{"role": "system", "content": self.templates["i_medrag_system"]}]
+
+        for i in range(max_iterations):
+            if i < n_rounds:
+                if context == "":
+                    messages = [
+                        {
+                            "role": "system",
+                            "content": self.templates["i_medrag_system"],
+                        },
+                        {
+                            "role": "user",
+                            "content": f"{QUESTION_PROMPT}\n\n{self.templates['follow_up_ask'].format(n_queries)}",
+                        },
+                    ]
+                else:                
+                    messages = [
+                        {
+                            "role": "system",
+                            "content": self.templates["i_medrag_system"],
+                        },
+                        {
+                            "role": "user",
+                            "content": f"{context}\n\n{QUESTION_PROMPT}\n\n{self.templates['follow_up_ask'].format(n_queries)}",
+                        },
+                    ]
+            elif context != last_context:
+                messages = [
+                    {
+                        "role": "system",
+                        "content": self.templates["i_medrag_system"],
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{context}\n\n{QUESTION_PROMPT}\n\n{self.templates['follow_up_answer']}",
+                    },
+                ]
+            elif len(messages) == 1:
+                messages = [
+                    {
+                        "role": "system",
+                        "content": self.templates["i_medrag_system"],
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{context}\n\n{QUESTION_PROMPT}\n\n{self.templates['follow_up_answer']}",
+                    },
+                ]
+            saved_messages.append(messages[-1])
+            if save_path:
+                with open(save_path, 'w') as f:
+                    json.dump([p if type(p) == dict else p.model_dump() for p in saved_messages], f, indent=4)
+            last_context = context
+            last_content = self.generate(messages)
+            response_message = {"role": "assistant", "content": last_content}
+            saved_messages.append(response_message)
+            if save_path:
+                with open(save_path, 'w') as f:
+                    json.dump([p if type(p) == dict else p.model_dump() for p in saved_messages], f, indent=4)       
+            if i >= n_rounds and ("## Answer" in last_content or "answer is" in last_content.lower()):
+                messages.append(response_message)
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "Output the answer in JSON: {'answer': your_answer (A/B/C/D)}" if options else "Output the answer in JSON: {'answer': your_answer}",
+                    }
                 )
+                saved_messages.append(messages[-1])
+                answer_content = self.generate(messages)
+                answer_message = {"role": "assistant", "content": answer_content}
+                messages.append(answer_message)
+                saved_messages.append(messages[-1])
+                if save_path:
+                    with open(save_path, 'w') as f:
+                        json.dump([p if type(p) == dict else p.model_dump() for p in saved_messages], f, indent=4)
+                return messages[-1]["content"], messages
+            elif "## Queries" in last_content:
+                messages = messages[:-1]
+                if last_content.split("## Queries")[-1].strip() == "":
+                    print("Empty queries. Continue with next iteration.")
+                    continue
+                try:
+                    action_str = self.generate([
+                        {
+                            "role": "user",
+                            "content": f"Parse the following passage and extract the queries as a list: {last_content}.\n\nPresent the queries as they are. DO NOT merge or break down queries. Output the list of queries in JSON format: {{\"output\": [\"query 1\", ..., \"query N\"]}}",
+                        },
+                    ])
+                    action_str = re.search(r"output\": (\[.*\])", action_str, re.DOTALL).group(1)
+                    action_list = [re.sub(r'^\d+\.\s*', '', s.strip()) for s in eval(action_str)]
+                except Exception as E:
+                    print("Error parsing action list. Continue with next iteration.")
+                    error_class = E.__class__.__name__
+                    error = f"{error_class}: {str(E)}"
+                    print(error)
+                    if save_path:
+                        with open(save_path + ".error", 'a') as f:
+                            f.write(f"{error}\n")                
+                    continue
+                for question in action_list:
+                    if question.strip() == "":
+                        continue
+                    try:
+                        rag_result = self.medrag_answer(question, k=k, rrf_k=rrf_k)[0]
+                        context += f"\n\nQuery: {question}\nAnswer: {rag_result}"
+                        context = context.strip()
+                    except Exception as E:
+                        error_class = E.__class__.__name__
+                        error = f"{error_class}: {str(E)}"
+                        print(error)
+                        if save_path:
+                            with open(save_path + ".error", 'a') as f:
+                                f.write(f"{error}\n")
+                qa_cache.append(context)
+                if qa_cache_path:
+                    with open(qa_cache_path, 'w') as f:
+                        json.dump(qa_cache, f, indent=4)
             else:
-                response = self.model(
-                    prompt,
-                    do_sample=False,
-                    eos_token_id=self.tokenizer.eos_token_id,
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    max_length=self.max_length,
-                    truncation=True,
-                    stopping_criteria=stopping_criteria
-                )
-            ans = response[0]["generated_text"]
-        return ans
+                messages.append(response_message)
+                print("No queries or answer. Continue with next iteration.")
+                continue
+        return messages[-1]["content"], messages
 
 class CustomStoppingCriteria(StoppingCriteria):
     def __init__(self, stop_words, tokenizer, input_len=0):
