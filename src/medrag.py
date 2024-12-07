@@ -133,7 +133,7 @@ class MedRAG:
         stopping_criteria = StoppingCriteriaList([CustomStoppingCriteria(stop_str, self.tokenizer, input_len)])
         return stopping_criteria
 
-    def generate(self, messages):
+    def generate(self, messages, **kwargs):
         '''
         generate response given messages
         '''
@@ -142,9 +142,10 @@ class MedRAG:
                 model=self.model,
                 messages=messages,
                 temperature=0.0,
+                **kwargs
             )
         elif "gemini" in self.llm_name.lower():
-            response = self.model.generate_content(messages[0]["content"] + '\n\n' + messages[1]["content"])
+            response = self.model.generate_content(messages[0]["content"] + '\n\n' + messages[1]["content"], **kwargs)
             ans = response.candidates[0].content.parts[0].text
         else:
             stopping_criteria = None
@@ -160,7 +161,8 @@ class MedRAG:
                     pad_token_id=self.tokenizer.eos_token_id,
                     max_length=self.max_length,
                     truncation=True,
-                    stopping_criteria=stopping_criteria
+                    stopping_criteria=stopping_criteria,
+                    **kwargs
                 )
             else:
                 response = self.model(
@@ -170,7 +172,8 @@ class MedRAG:
                     pad_token_id=self.tokenizer.eos_token_id,
                     max_length=self.max_length,
                     truncation=True,
-                    stopping_criteria=stopping_criteria
+                    stopping_criteria=stopping_criteria,
+                    **kwargs
                 )
             # ans = response[0]["generated_text"]
             ans = response[0]["generated_text"][len(prompt):]
@@ -231,7 +234,7 @@ class MedRAG:
                 {"role": "system", "content": self.templates["cot_system"]},
                 {"role": "user", "content": prompt_cot}
             ]
-            ans = self.generate(messages)
+            ans = self.generate(messages, **kwargs)
             answers.append(re.sub("\s+", " ", ans))
         else:
             for context in contexts:
@@ -240,7 +243,7 @@ class MedRAG:
                         {"role": "system", "content": self.templates["medrag_system"]},
                         {"role": "user", "content": prompt_medrag}
                 ]
-                ans = self.generate(messages)
+                ans = self.generate(messages, **kwargs)
                 answers.append(re.sub("\s+", " ", ans))
         
         if save_dir is not None:
@@ -322,7 +325,7 @@ class MedRAG:
                 with open(save_path, 'w') as f:
                     json.dump([p if type(p) == dict else p.model_dump() for p in saved_messages], f, indent=4)
             last_context = context
-            last_content = self.generate(messages)
+            last_content = self.generate(messages, **kwargs)
             response_message = {"role": "assistant", "content": last_content}
             saved_messages.append(response_message)
             if save_path:
@@ -337,7 +340,7 @@ class MedRAG:
                     }
                 )
                 saved_messages.append(messages[-1])
-                answer_content = self.generate(messages)
+                answer_content = self.generate(messages, **kwargs)
                 answer_message = {"role": "assistant", "content": answer_content}
                 messages.append(answer_message)
                 saved_messages.append(messages[-1])
@@ -355,7 +358,7 @@ class MedRAG:
                         {
                             "role": "user",
                             "content": f"Parse the following passage and extract the queries as a list: {last_content}.\n\nPresent the queries as they are. DO NOT merge or break down queries. Output the list of queries in JSON format: {{\"output\": [\"query 1\", ..., \"query N\"]}}",
-                        },
+                        }, **kwargs
                     ])
                     action_str = re.search(r"output\": (\[.*\])", action_str, re.DOTALL).group(1)
                     action_list = [re.sub(r'^\d+\.\s*', '', s.strip()) for s in eval(action_str)]
@@ -372,7 +375,7 @@ class MedRAG:
                     if question.strip() == "":
                         continue
                     try:
-                        rag_result = self.medrag_answer(question, k=k, rrf_k=rrf_k)[0]
+                        rag_result = self.medrag_answer(question, k=k, rrf_k=rrf_k, **kwargs)[0]
                         context += f"\n\nQuery: {question}\nAnswer: {rag_result}"
                         context = context.strip()
                     except Exception as E:
