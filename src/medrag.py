@@ -358,8 +358,8 @@ class MedRAG:
                         {
                             "role": "user",
                             "content": f"Parse the following passage and extract the queries as a list: {last_content}.\n\nPresent the queries as they are. DO NOT merge or break down queries. Output the list of queries in JSON format: {{\"output\": [\"query 1\", ..., \"query N\"]}}",
-                        }, **kwargs
-                    ])
+                        }
+                    ], **kwargs)
                     action_str = re.search(r"output\": (\[.*\])", action_str, re.DOTALL).group(1)
                     action_list = [re.sub(r'^\d+\.\s*', '', s.strip()) for s in eval(action_str)]
                 except Exception as E:
