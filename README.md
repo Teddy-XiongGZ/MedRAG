@@ -7,6 +7,7 @@
 [![Corpus](https://img.shields.io/badge/corpus-available-yellow)](https://huggingface.co/MedRAG)
 
 ## News
+- (02/20/2025) [`RAG-Gym`](https://rag-gym.github.io/) is released! RAG-Gym is a unified framework for optimizing agentic RAG with process supervision, applicable to both general and medical QA tasks.
 - (10/10/2024) Multiple updates!
 - - We have changed the output format of open-source LLMs to make it similar to closed-source ones like GPT-4. Input tokens will no longer be included in the model output.
 - - We updated our `transformers` version in requirements.txt to ensure [compatibility](#compatibility) with new LLMs, such as Llama 3.1 and 3.2.
