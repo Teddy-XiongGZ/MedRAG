@@ -220,10 +220,12 @@ For the use of `MedRAG`, please consider citing
 
 For the use of `i-MedRAG`, please consider citing
 ```bibtex
-@article{xiong2024improving,
-  title={Improving Retrieval-Augmented Generation in Medicine with Iterative Follow-up Questions},
+@inproceedings{xiong2024improving,
+  title={Improving retrieval-augmented generation in medicine with iterative follow-up questions},
   author={Xiong, Guangzhi and Jin, Qiao and Wang, Xiao and Zhang, Minjia and Lu, Zhiyong and Zhang, Aidong},
-  journal={arXiv preprint arXiv:2408.00727},
-  year={2024}
+  booktitle={Biocomputing 2025: Proceedings of the Pacific Symposium},
+  pages={199--214},
+  year={2024},
+  organization={World Scientific}
 }
 ```
